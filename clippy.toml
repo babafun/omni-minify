@@ -1,0 +1,17 @@
+# Enterprise-grade clippy configuration for omni-minify
+# Focuses on performance-critical issues and runtime efficiency
+
+# Performance thresholds
+too-many-arguments-threshold = 8
+type-complexity-threshold = 250
+trivial-copy-size-limit = 64
+pass-by-value-size-limit = 256
+large-error-threshold = 200
+
+# Collection and iteration limits
+too-many-lines-threshold = 150
+cognitive-complexity-threshold = 30
+vec-box-size-threshold = 4096
+
+# String and formatting limits
+literal-representation-threshold = 10000

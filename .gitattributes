@@ -1,0 +1,40 @@
+# Git attributes for omni-minify
+# Ensures consistent line endings across platforms
+
+# Default behavior: normalize line endings to LF in repository, 
+# but allow platform-specific line endings in working directory
+* text=auto
+
+# Rust source files: always use LF
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+
+# Configuration files: always use LF
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Shell scripts: always use LF (critical for Unix compatibility)
+*.sh text eol=lf
+
+# Windows batch files: always use CRLF
+*.bat text eol=crlf
+
+# Binary files: don't touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.glb binary
+*.gltf binary
+
+# Lock files: normalize but don't convert
+Cargo.lock text
+package-lock.json text
