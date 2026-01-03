@@ -10,7 +10,7 @@ A format-aware, open-source CLI that optimises text, code, and binary assets:
 This is not a formatter.
 This is not a zip file.
 
-This is **semantic size reduction**.
+This is *semantic size reduction*, so that once you're done with your code (or GLB file), you free up a bunch of space.
 
 ## Status
 🚧 Early development - do not use on code you care about without backing it up.
