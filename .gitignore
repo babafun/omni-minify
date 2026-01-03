@@ -24,5 +24,12 @@ target
 # Added by cargo
 
 /target
-.kiro/
 .vscode/
+
+# Kiro - keep steering documents hidden since this will be a public repository soon
+.kiro/
+# Test files are kept in tests/ directory - do not ignore
+# tests/ directory should be committed
+
+# minified files from tests
+tests/**/*.min.js

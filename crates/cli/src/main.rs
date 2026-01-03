@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use core::{Minifier, MinifyError, MinifyLevel};
+use js::JavaScriptPlugin;
 use log::{debug, error, info};
 use std::fs;
 use std::path::PathBuf;
@@ -28,6 +29,10 @@ pub struct Args {
 	/// Override format detection and use specified format
 	#[arg(long, value_enum)]
 	pub format: Option<FormatOverride>,
+
+	/// Output file path (default: input.min.ext)
+	#[arg(long, short)]
+	pub output: Option<PathBuf>,
 }
 
 /// Supported format overrides for manual format selection
@@ -55,11 +60,58 @@ impl Args {
 			MinifyLevel::Safe
 		}
 	}
+
+	/// Get the output file path based on input and --output flag
+	pub fn get_output_path(&self) -> PathBuf {
+		if let Some(ref output) = self.output {
+			// Use explicit output path if provided
+			output.clone()
+		} else {
+			// Generate default output path: input.min.ext
+			self.generate_default_output_path()
+		}
+	}
+
+	/// Generate default output path by inserting .min before the extension
+	fn generate_default_output_path(&self) -> PathBuf {
+		let input_path = &self.input;
+
+		if let Some(extension) = input_path.extension() {
+			// Has extension: file.ext -> file.min.ext
+			let stem = input_path.file_stem().unwrap_or_default();
+			let parent = input_path
+				.parent()
+				.unwrap_or_else(|| std::path::Path::new("."));
+
+			let new_filename = format!(
+				"{}.min.{}",
+				stem.to_string_lossy(),
+				extension.to_string_lossy()
+			);
+
+			parent.join(new_filename)
+		} else {
+			// No extension: file -> file.min
+			let filename = input_path.file_name().unwrap_or_default();
+			let parent = input_path
+				.parent()
+				.unwrap_or_else(|| std::path::Path::new("."));
+
+			let new_filename = format!("{}.min", filename.to_string_lossy());
+			parent.join(new_filename)
+		}
+	}
 }
 
 /// Plugin registry that manages all available minification plugins
 pub struct PluginRegistry {
 	plugins: Vec<Box<dyn Minifier>>,
+}
+
+impl Default for PluginRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginRegistry {
@@ -108,7 +160,7 @@ impl PluginRegistry {
 	/// Provides explicit format selection bypassing auto-detection
 	pub fn find_plugin_by_format(&self, format: FormatOverride) -> Option<&dyn Minifier> {
 		let format_name = match format {
-			FormatOverride::Js => "js",
+			FormatOverride::Js => "javascript",
 			FormatOverride::Css => "css",
 			FormatOverride::Html => "html",
 			FormatOverride::Glb => "glb",
@@ -153,19 +205,23 @@ pub struct App {
 	registry: PluginRegistry,
 }
 
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl App {
 	/// Create a new application instance
 	pub fn new() -> Self {
 		debug!("Creating new App instance");
 
-		let app = Self {
+		let mut app = Self {
 			registry: PluginRegistry::new(),
 		};
 
-		// TODO: Register actual plugins when they are implemented
-		// app.registry.register(Box::new(JavaScriptPlugin::new()));
-		// app.registry.register(Box::new(CssPlugin::new()));
-		// app.registry.register(Box::new(HtmlPlugin::new()));
+		// Register JavaScript plugin
+		app.registry.register(Box::new(JavaScriptPlugin::new()));
 
 		debug!("App initialized with {} plugins", app.registry.len());
 		app
@@ -213,13 +269,27 @@ impl App {
 			output_bytes.len()
 		);
 
-		// Write output back to the same file
-		self.write_file(&args.input, &output_bytes)?;
-		info!("File minified successfully");
+		// Get output path
+		let output_path = args.get_output_path();
+		debug!("Output path: {:?}", output_path);
+
+		// Write output to new file (preserves original)
+		self.write_file(&output_path, &output_bytes)?;
+		info!(
+			"File minified successfully: {} -> {}",
+			args.input.display(),
+			output_path.display()
+		);
 
 		// Display statistics if requested
 		if args.stats {
-			self.display_stats(plugin, input_bytes.len(), output_bytes.len());
+			self.display_stats(
+				plugin,
+				input_bytes.len(),
+				output_bytes.len(),
+				&args.input,
+				&output_path,
+			);
 		}
 
 		Ok(())
@@ -250,9 +320,18 @@ impl App {
 	}
 
 	/// Display minification statistics
-	fn display_stats(&self, plugin: &dyn Minifier, before_bytes: usize, after_bytes: usize) {
+	fn display_stats(
+		&self,
+		plugin: &dyn Minifier,
+		before_bytes: usize,
+		after_bytes: usize,
+		input_path: &PathBuf,
+		output_path: &PathBuf,
+	) {
 		println!("\n=== Minification Statistics ===");
 		println!("Plugin: {}", plugin.name());
+		println!("Input: {}", input_path.display());
+		println!("Output: {}", output_path.display());
 		println!("Before: {} bytes", before_bytes);
 		println!("After: {} bytes", after_bytes);
 
@@ -266,11 +345,10 @@ impl App {
 		println!("Saved: {} bytes ({:.1}%)", saved, percentage);
 
 		// Display plugin-specific stats if available
-		if let Some(stats) = plugin.stats() {
-			if let Some(extra) = &stats.extra {
+		if let Some(stats) = plugin.stats()
+			&& let Some(extra) = &stats.extra {
 				println!("Details: {}", extra);
 			}
-		}
 		println!("===============================");
 	}
 }
@@ -282,11 +360,12 @@ fn main() {
 	// Parse command line arguments
 	let args = Args::parse();
 	debug!(
-		"Parsed arguments: input={:?}, level={:?}, stats={}, format={:?}",
+		"Parsed arguments: input={:?}, level={:?}, stats={}, format={:?}, output={:?}",
 		args.input,
 		args.get_minify_level(),
 		args.stats,
-		args.format
+		args.format,
+		args.output
 	);
 
 	// Create and run application
@@ -332,7 +411,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use quickcheck::{quickcheck, TestResult};
+	use quickcheck::{TestResult, quickcheck};
 	use std::io::Write;
 	use tempfile::NamedTempFile;
 
@@ -359,6 +438,7 @@ mod tests {
 				aggressive: aggressive_flag,
 				stats: false,
 				format: None,
+				output: None,
 			};
 
 			let level = args.get_minify_level();
@@ -405,7 +485,7 @@ mod tests {
 				Err(_) => return TestResult::discard(),
 			};
 
-			if let Err(_) = temp_file.write_all(&file_content) {
+			if temp_file.write_all(&file_content).is_err() {
 				return TestResult::discard();
 			}
 
@@ -440,6 +520,7 @@ mod tests {
 			aggressive: false,
 			stats: false,
 			format: None,
+			output: None,
 		};
 		assert_eq!(args.get_minify_level(), MinifyLevel::Safe);
 
@@ -450,6 +531,7 @@ mod tests {
 			aggressive: false,
 			stats: false,
 			format: None,
+			output: None,
 		};
 		assert_eq!(args.get_minify_level(), MinifyLevel::Safe);
 
@@ -460,8 +542,56 @@ mod tests {
 			aggressive: true,
 			stats: false,
 			format: None,
+			output: None,
 		};
 		assert_eq!(args.get_minify_level(), MinifyLevel::Aggressive);
+	}
+
+	#[test]
+	fn test_output_path_generation() {
+		// Test default output path generation
+		let args = Args {
+			input: PathBuf::from("script.js"),
+			safe: false,
+			aggressive: false,
+			stats: false,
+			format: None,
+			output: None,
+		};
+		assert_eq!(args.get_output_path(), PathBuf::from("script.min.js"));
+
+		// Test with custom output path
+		let args = Args {
+			input: PathBuf::from("script.js"),
+			safe: false,
+			aggressive: false,
+			stats: false,
+			format: None,
+			output: Some(PathBuf::from("custom-output.js")),
+		};
+		assert_eq!(args.get_output_path(), PathBuf::from("custom-output.js"));
+
+		// Test with no extension
+		let args = Args {
+			input: PathBuf::from("script"),
+			safe: false,
+			aggressive: false,
+			stats: false,
+			format: None,
+			output: None,
+		};
+		assert_eq!(args.get_output_path(), PathBuf::from("script.min"));
+
+		// Test with path and extension
+		let args = Args {
+			input: PathBuf::from("src/styles.css"),
+			safe: false,
+			aggressive: false,
+			stats: false,
+			format: None,
+			output: None,
+		};
+		assert_eq!(args.get_output_path(), PathBuf::from("src/styles.min.css"));
 	}
 
 	#[test]
@@ -672,7 +802,7 @@ mod tests {
 		struct JsPlugin;
 		impl Minifier for JsPlugin {
 			fn name(&self) -> &str {
-				"js"
+				"javascript"
 			}
 			fn detect(&self, _: &[u8]) -> bool {
 				false
@@ -707,7 +837,7 @@ mod tests {
 		// Test format overrides
 		let js_plugin = registry.find_plugin_by_format(FormatOverride::Js);
 		assert!(js_plugin.is_some());
-		assert_eq!(js_plugin.unwrap().name(), "js");
+		assert_eq!(js_plugin.unwrap().name(), "javascript");
 
 		let css_plugin = registry.find_plugin_by_format(FormatOverride::Css);
 		assert!(css_plugin.is_some());
@@ -735,10 +865,15 @@ mod tests {
 		let read_result = app.read_file(&path).unwrap();
 		assert_eq!(read_result, test_content);
 
-		// Test writing
+		// Test writing to different path (new behavior)
+		let output_path = path.with_extension("min.txt");
 		let new_content = b"new content";
-		app.write_file(&path, new_content).unwrap();
-		let read_again = app.read_file(&path).unwrap();
+		app.write_file(&output_path, new_content).unwrap();
+		let read_again = app.read_file(&output_path).unwrap();
 		assert_eq!(read_again, new_content);
+
+		// Verify original file is unchanged
+		let original_content = app.read_file(&path).unwrap();
+		assert_eq!(original_content, test_content);
 	}
 }

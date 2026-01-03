@@ -1,0 +1,1 @@
+function hello() { const message = "Hello, World!"; return message} console.log(hello());
