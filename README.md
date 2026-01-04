@@ -14,11 +14,16 @@ This is *semantic size reduction*, so that once you're done with your code (or G
 
 ## Status
 🚧 Early development - do not use on code you care about without backing it up.
+Current known bugs:
+- It removes whitespace from text in quotes sometimes
 
 ## Goals
 - Plugin-based architecture
 - Safe vs aggressive optimisation
 - Format-aware stats
+
+## Contributing
+Contributing is quite easy! All you have to do is fork the repository, create a new plugin in crates/plugins/(supported filetype)/, and edit the CLI to connect to it.
 
 ## How to Run
 
