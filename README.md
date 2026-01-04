@@ -14,8 +14,9 @@ This is *semantic size reduction*, so that once you're done with your code (or G
 
 ## Status
 🚧 Early development - do not use on code you care about without backing it up.
-Current known bugs:
-- It removes whitespace from text in quotes sometimes
+
+Currently known bugs:
+- It removes whitespace from text in quotes/paragraphs at times (universal)
 
 ## Goals
 - Plugin-based architecture
@@ -25,6 +26,12 @@ Current known bugs:
 ## Contributing
 Contributing is quite easy! All you have to do is fork the repository, create a new plugin in crates/plugins/(supported filetype)/, and edit the CLI to connect to it.
 
+## Plugin versions
+Current plugin versions and states:
+- JavaScript is at v0.1.0 - currently in beta
+- CSS is at v1.0.0 - stable for usage in production
+- HTML is at v0.1.0 - currently in beta
+- GLB currently has an empty plugin - will be worked on!
 ## How to Run
 
 Currently, as there are no releases yet, you will have to compile and run the code from source.
