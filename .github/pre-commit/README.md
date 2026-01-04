@@ -1,6 +1,6 @@
 # Pre-commit Hooks for omni-minify
 
-This directory contains enterprise-grade pre-commit hooks that automatically fix code formatting and performance issues before each commit.
+This directory contains some decent pre-commit hooks that automatically fix code formatting and performance issues before each commit.
 
 ## Directory Structure
 

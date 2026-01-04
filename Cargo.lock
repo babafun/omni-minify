@@ -128,7 +128,13 @@ dependencies = [
 
 [[package]]
 name = "css"
-version = "0.0.0"
+version = "1.0.0"
+dependencies = [
+ "core",
+ "log",
+ "quickcheck",
+ "regex",
+]
 
 [[package]]
 name = "env_logger"
@@ -210,7 +216,13 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "html"
-version = "0.0.0"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "log",
+ "quickcheck",
+ "regex",
+]
 
 [[package]]
 name = "humantime"
@@ -237,7 +249,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "js"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "core",
  "env_logger 0.10.2",
@@ -276,7 +288,9 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "core",
+ "css",
  "env_logger 0.10.2",
+ "html",
  "js",
  "log",
  "quickcheck",

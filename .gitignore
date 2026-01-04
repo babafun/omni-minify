@@ -32,4 +32,6 @@ target
 # tests/ directory should be committed
 
 # minified files from tests
-tests/**/*.min.js
+tests/**/*.min.*
+
+*.bak

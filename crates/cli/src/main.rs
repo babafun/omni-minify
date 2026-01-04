@@ -1,5 +1,7 @@
 use clap::{Parser, ValueEnum};
 use core::{Minifier, MinifyError, MinifyLevel};
+use css::CSSPlugin;
+use html::HTMLPlugin;
 use js::JavaScriptPlugin;
 use log::{debug, error, info};
 use std::fs;
@@ -109,9 +111,9 @@ pub struct PluginRegistry {
 }
 
 impl Default for PluginRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl PluginRegistry {
@@ -206,9 +208,9 @@ pub struct App {
 }
 
 impl Default for App {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl App {
@@ -222,6 +224,12 @@ impl App {
 
 		// Register JavaScript plugin
 		app.registry.register(Box::new(JavaScriptPlugin::new()));
+
+		// Register CSS plugin
+		app.registry.register(Box::new(CSSPlugin::new()));
+
+		// Register HTML plugin
+		app.registry.register(Box::new(HTMLPlugin::new()));
 
 		debug!("App initialized with {} plugins", app.registry.len());
 		app
@@ -346,9 +354,10 @@ impl App {
 
 		// Display plugin-specific stats if available
 		if let Some(stats) = plugin.stats()
-			&& let Some(extra) = &stats.extra {
-				println!("Details: {}", extra);
-			}
+			&& let Some(extra) = &stats.extra
+		{
+			println!("Details: {}", extra);
+		}
 		println!("===============================");
 	}
 }

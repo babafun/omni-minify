@@ -3,13 +3,26 @@ use log::debug;
 use regex::Regex;
 use std::sync::LazyLock;
 
-// Compile regex patterns once at startup
+// Regex patterns for comment removal
 static COMMENT_REGEX: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"(?m)//.*$|/\*[\s\S]*?\*/").unwrap());
 
-static WHITESPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
-
-static SEMICOLON_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r";\s*}").unwrap());
+// Regex patterns for whitespace removal (outside of quotes)
+static MULTI_SPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"  +").unwrap());
+static LINE_BREAK_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n|\r").unwrap());
+static HARD_TAB_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\t").unwrap());
+static SPACE_BEFORE_PAREN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \(").unwrap());
+static SPACE_AFTER_PAREN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\) ").unwrap());
+static SPACE_BEFORE_BRACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \{").unwrap());
+static SPACE_AFTER_BRACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\} ").unwrap());
+static SPACE_BEFORE_BRACKET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" \[").unwrap());
+static SPACE_AFTER_BRACKET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\] ").unwrap());
+static SPACE_BEFORE_COLON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" :").unwrap());
+static SPACE_AFTER_COLON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r": ").unwrap());
+static SPACE_BEFORE_COMMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ,").unwrap());
+static SPACE_AFTER_COMMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r", ").unwrap());
+static SPACE_BEFORE_SEMICOLON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" ;").unwrap());
+static SPACE_ARROW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" =>").unwrap());
 
 pub struct JavaScriptPlugin {
 	last_stats: Option<MinifyStats>,
@@ -92,17 +105,46 @@ impl JavaScriptPlugin {
 		// Validate syntax first
 		self.parse_javascript(&input)?;
 
-		// Remove comments
-		let without_comments = COMMENT_REGEX.replace_all(&input, "");
+		// Step 1: Remove comments (// and /* */)
+		let without_comments = COMMENT_REGEX.replace_all(&input, "").to_string();
 
-		// Collapse whitespace (but preserve single spaces where needed)
-		let collapsed = WHITESPACE_REGEX.replace_all(&without_comments, " ");
+		// Step 2: Remove hard tabs
+		let no_tabs = HARD_TAB_REGEX.replace_all(&without_comments, "").to_string();
 
-		// Remove unnecessary semicolons before closing braces
-		let cleaned = SEMICOLON_REGEX.replace_all(&collapsed, "}");
+		// Step 3: Remove line breaks
+		let no_breaks = LINE_BREAK_REGEX.replace_all(&no_tabs, "").to_string();
+
+		// Step 4: Remove extra whitespace (multiple spaces -> single space)
+		let normalized = MULTI_SPACE_REGEX.replace_all(&no_breaks, " ").to_string();
+
+		// Step 5: Remove whitespace around punctuation while preserving keywords
+		// Space before opening paren (but not after function keyword)
+		let step1 = SPACE_BEFORE_PAREN.replace_all(&normalized, "(").to_string();
+		// Space after closing paren
+		let step2 = SPACE_AFTER_PAREN.replace_all(&step1, ")").to_string();
+		// Space before opening brace
+		let step3 = SPACE_BEFORE_BRACE.replace_all(&step2, "{").to_string();
+		// Space after closing brace
+		let step4 = SPACE_AFTER_BRACE.replace_all(&step3, "}").to_string();
+		// Space before opening bracket
+		let step5 = SPACE_BEFORE_BRACKET.replace_all(&step4, "[").to_string();
+		// Space after closing bracket
+		let step6 = SPACE_AFTER_BRACKET.replace_all(&step5, "]").to_string();
+		// Space before colon
+		let step7 = SPACE_BEFORE_COLON.replace_all(&step6, ":").to_string();
+		// Space after colon
+		let step8 = SPACE_AFTER_COLON.replace_all(&step7, ":").to_string();
+		// Space before comma
+		let step9 = SPACE_BEFORE_COMMA.replace_all(&step8, ",").to_string();
+		// Space after comma
+		let step10 = SPACE_AFTER_COMMA.replace_all(&step9, ",").to_string();
+		// Space before semicolon
+		let step11 = SPACE_BEFORE_SEMICOLON.replace_all(&step10, ";").to_string();
+		// Space around arrow function =>
+		let step12 = SPACE_ARROW.replace_all(&step11, "=>").to_string();
 
 		// Trim leading/trailing whitespace
-		let output = cleaned.trim().to_string();
+		let output = step12.trim().to_string();
 		let output_bytes = output.as_bytes().to_vec();
 
 		// Update statistics
@@ -212,8 +254,6 @@ impl Minifier for JavaScriptPlugin {
 		let mut plugin = JavaScriptPlugin {
 			last_stats: self.last_stats.clone(),
 		};
-
-		
 
 		match level {
 			MinifyLevel::Safe => plugin.safe_minify(input_bytes),

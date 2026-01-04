@@ -9,6 +9,8 @@ log = "0.4"
 env_logger = "0.10"
 core = { path = "../core" }
 js = { path = "../plugins/js" }
+css = { path = "../plugins/css" }
+html = { path = "../plugins/html" }
 
 [dev-dependencies]
 tempfile = "3.0"

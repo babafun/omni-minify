@@ -1,5 +1,13 @@
 [package]
 name = "css"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
+core = { path = "../../core" }
+regex = "1.10"
+log = "0.4"
+
+[dev-dependencies]
+quickcheck = "1.0"
+
