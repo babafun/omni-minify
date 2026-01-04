@@ -12,27 +12,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
 
-      # Cache the entire target folder for workspace speed
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
-
+      # Modern enterprise approach: use specialized actions for tool installation
       - name: Install cargo tools
-        run: |
-          mkdir -p ~/.cargo/bin
-          # Use specific versions for enterprise stability instead of 'latest'
-          curl -sL https://github.com/RustSec/rustsec/releases/latest/download/cargo-audit-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin/
-          curl -sL https://github.com/EmbarkStudios/cargo-deny/releases/latest/download/cargo-deny-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin/
-          chmod +x ~/.cargo/bin/*
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
 
-      # Workspace wide checks
       - name: Run standard check
         run: cargo check --workspace --all-targets
 
@@ -53,26 +38,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/
-            target/
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install cargo-tarpaulin
-        run: |
-          curl -sL https://github.com/xd009642/tarpaulin/releases/latest/download/cargo-tarpaulin-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin/
-          chmod +x ~/.cargo/bin/cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
 
-      # Run tests for all members of the workspace
       - name: Run cargo test
         run: cargo test --workspace
 
-      # Coverage across the entire workspace
       - name: Run tarpaulin
+        # Aggregates coverage for the entire workspace
         run: cargo tarpaulin --workspace --fail-under 80 --ignore-tests
 
   build_test_deploy:
@@ -86,11 +61,10 @@ jobs:
           sudo apt-get install -y libdbus-1-dev pkg-config
 
       - name: Install cargo-chef
-        run: |
-          curl -fsLo ~/.cargo/bin/cargo-chef https://github.com/LukeMathWalker/cargo-chef/releases/latest/download/cargo-chef-x86_64-unknown-linux-gnu
-          chmod +x ~/.cargo/bin/cargo-chef
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-chef
 
-      # CHEF WORKSPACE STRATEGY
       - name: Cargo Chef Prepare
         run: cargo chef prepare --recipe-path recipe.json
 
@@ -103,6 +77,5 @@ jobs:
       - name: Cargo Chef Cook
         run: cargo chef cook --release --recipe-path recipe.json
 
-      # Final build of all binaries in the workspace
       - name: Build Workspace
         run: cargo build --release --workspace
