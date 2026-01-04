@@ -9,3 +9,25 @@ members = [
 ]
 
 resolver = "2"
+
+[profile.dev]
+opt-level = "s"
+lto = "thin"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.mini]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.mini.package."*"]
+opt-level = "z"

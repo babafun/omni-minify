@@ -25,12 +25,24 @@ This is *semantic size reduction*, so that once you're done with your code (or G
 Currently, as there are no releases yet, you will have to compile and run the code from source.
 How to do this:
 1. Clone the repository onto your computer.
-2. Get the file you want minified in the same folder as this README.
-3. Ensuring you have Rust installed, in the root folder `omni-minify`, run:
+2. take your terminal into the repository, e.g:
 ```bash
-cargo run -p omni-minify-cli -- {file path}
+cd omni-minify
+```
+3. Get the file you want minified in the same folder as this README.
+4. Ensuring you have Rust installed (if you do not, please install by following the instructions from [the official Rust installer](https://rustup.rs/)), in the root folder `omni-minify`, run:
+```bash
+cargo cli {file path}
 ```
 
 Example test:
-`cargo run -p omni-minify-cli -- tests/samples/javascript/bloated.js --stats`
+`cargo cli tests/samples/javascript/bloated.js --stats`
 Output will appear in tests/samples/javascript/bloated.min.js
+
+## Building
+
+This project supports three profiles to build with:
+
+1. Debug (or dev) profile (`cargo build`) - this builds the default dev profile, with a small amount of optimisation. Keeps Rust's standard debug information
+2. Release profile (`cargo build -r`) - this builds an aggressively speed-optimised release. This is the one that will be released on the GitHub releases page.
+3. Mini profile (`cargo mini`) - this builds a size-optimised release. Use this if you want your binary to take as little space as possible.
