@@ -1,0 +1,21 @@
+/* This file contains invalid CSS syntax for testing error handling */
+
+.valid-class {
+  color: red;
+}
+
+/* Missing closing brace */
+.invalid-class {
+  color: blue;
+  margin: 0;
+
+/* Unbalanced parentheses */
+.another-class {
+  background: url('image.jpg';
+  padding: 10px;
+}
+
+/* Invalid property */
+.bad-property {
+  invalid-property-name: value;
+  color: green;

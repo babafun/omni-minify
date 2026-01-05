@@ -1,0 +1,29 @@
+/* Media queries test file */
+@media screen and (max-width: 768px) {
+  .container {
+    width: 100%;
+    padding: 10px;
+  }
+  
+  .sidebar {
+    display: none;
+  }
+}
+
+@media print {
+  body {
+    font-size: 12pt;
+    color: black;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #1a1a1a;
+    --text-color: #ffffff;
+  }
+}

@@ -105,47 +105,13 @@ impl JavaScriptPlugin {
 		// Validate syntax first
 		self.parse_javascript(&input)?;
 
-		// Step 1: Remove comments (// and /* */)
-		let without_comments = COMMENT_REGEX.replace_all(&input, "").to_string();
+		// Step 1: Remove comments while preserving strings
+		let without_comments = self.remove_comments_preserving_strings(&input);
 
-		// Step 2: Remove hard tabs
-		let no_tabs = HARD_TAB_REGEX.replace_all(&without_comments, "").to_string();
+		// Step 2: Remove whitespace while preserving strings and regex literals
+		let minified = self.remove_whitespace_preserving_strings(&without_comments);
 
-		// Step 3: Remove line breaks
-		let no_breaks = LINE_BREAK_REGEX.replace_all(&no_tabs, "").to_string();
-
-		// Step 4: Remove extra whitespace (multiple spaces -> single space)
-		let normalized = MULTI_SPACE_REGEX.replace_all(&no_breaks, " ").to_string();
-
-		// Step 5: Remove whitespace around punctuation while preserving keywords
-		// Space before opening paren (but not after function keyword)
-		let step1 = SPACE_BEFORE_PAREN.replace_all(&normalized, "(").to_string();
-		// Space after closing paren
-		let step2 = SPACE_AFTER_PAREN.replace_all(&step1, ")").to_string();
-		// Space before opening brace
-		let step3 = SPACE_BEFORE_BRACE.replace_all(&step2, "{").to_string();
-		// Space after closing brace
-		let step4 = SPACE_AFTER_BRACE.replace_all(&step3, "}").to_string();
-		// Space before opening bracket
-		let step5 = SPACE_BEFORE_BRACKET.replace_all(&step4, "[").to_string();
-		// Space after closing bracket
-		let step6 = SPACE_AFTER_BRACKET.replace_all(&step5, "]").to_string();
-		// Space before colon
-		let step7 = SPACE_BEFORE_COLON.replace_all(&step6, ":").to_string();
-		// Space after colon
-		let step8 = SPACE_AFTER_COLON.replace_all(&step7, ":").to_string();
-		// Space before comma
-		let step9 = SPACE_BEFORE_COMMA.replace_all(&step8, ",").to_string();
-		// Space after comma
-		let step10 = SPACE_AFTER_COMMA.replace_all(&step9, ",").to_string();
-		// Space before semicolon
-		let step11 = SPACE_BEFORE_SEMICOLON.replace_all(&step10, ";").to_string();
-		// Space around arrow function =>
-		let step12 = SPACE_ARROW.replace_all(&step11, "=>").to_string();
-
-		// Trim leading/trailing whitespace
-		let output = step12.trim().to_string();
-		let output_bytes = output.as_bytes().to_vec();
+		let output_bytes = minified.as_bytes().to_vec();
 
 		// Update statistics
 		self.last_stats = Some(
@@ -160,6 +126,192 @@ impl JavaScriptPlugin {
 		);
 
 		Ok(output_bytes)
+	}
+
+	fn remove_comments_preserving_strings(&self, input: &str) -> String {
+		let mut result = String::with_capacity(input.len());
+		let mut chars = input.chars().peekable();
+		let mut in_string = false;
+		let mut string_char = '\0';
+		let mut escape_next = false;
+		let mut in_regex = false;
+
+		while let Some(ch) = chars.next() {
+			if escape_next {
+				escape_next = false;
+				result.push(ch);
+				continue;
+			}
+
+			if ch == '\\' {
+				escape_next = true;
+				result.push(ch);
+				continue;
+			}
+
+			if in_string {
+				result.push(ch);
+				if ch == string_char {
+					in_string = false;
+				}
+				continue;
+			}
+
+			if in_regex {
+				result.push(ch);
+				if ch == '/' {
+					in_regex = false;
+				}
+				continue;
+			}
+
+			match ch {
+				'"' | '\'' | '`' => {
+					in_string = true;
+					string_char = ch;
+					result.push(ch);
+				}
+				'/' => {
+					if let Some(&next_ch) = chars.peek() {
+						match next_ch {
+							'/' => {
+								// Single-line comment - skip everything until end of line
+								chars.next(); // consume the second '/'
+								while let Some(c) = chars.next() {
+									if c == '\n' || c == '\r' {
+										// Don't preserve the line break - comments should be completely removed
+										break;
+									}
+									// Skip all characters in the comment
+								}
+							}
+							'*' => {
+								// Multi-line comment - skip to */
+								chars.next(); // consume the '*'
+								let mut found_end = false;
+								while let Some(c) = chars.next() {
+									if c == '*' {
+										if let Some(&'/') = chars.peek() {
+											chars.next(); // consume the '/'
+											found_end = true;
+											break;
+										}
+									}
+								}
+								if !found_end {
+									// Malformed comment, but continue
+								}
+								// Don't add anything to result - comment is completely removed
+							}
+							_ => {
+								// Could be regex literal - simple heuristic
+								// This is a simplified check; a full parser would be better
+								if self.could_be_regex_start(result.chars().last().unwrap_or('\0')) {
+									in_regex = true;
+								}
+								result.push(ch);
+							}
+						}
+					} else {
+						result.push(ch);
+					}
+				}
+				_ => {
+					result.push(ch);
+				}
+			}
+		}
+
+		result
+	}
+
+	fn remove_whitespace_preserving_strings(&self, input: &str) -> String {
+		let mut result = String::with_capacity(input.len());
+		let mut in_string = false;
+		let mut string_char = '\0';
+		let mut escape_next = false;
+		let mut in_regex = false;
+		let mut prev_char = '\0';
+
+		for ch in input.chars() {
+			if escape_next {
+				escape_next = false;
+				result.push(ch);
+				prev_char = ch;
+				continue;
+			}
+
+			if ch == '\\' {
+				escape_next = true;
+				result.push(ch);
+				prev_char = ch;
+				continue;
+			}
+
+			if in_string {
+				result.push(ch);
+				if ch == string_char {
+					in_string = false;
+				}
+				prev_char = ch;
+				continue;
+			}
+
+			if in_regex {
+				result.push(ch);
+				if ch == '/' {
+					in_regex = false;
+				}
+				prev_char = ch;
+				continue;
+			}
+
+			match ch {
+				'"' | '\'' | '`' => {
+					in_string = true;
+					string_char = ch;
+					result.push(ch);
+				}
+				'/' => {
+					// Simple regex detection heuristic
+					if self.could_be_regex_start(prev_char) {
+						in_regex = true;
+					}
+					result.push(ch);
+				}
+				' ' | '\t' | '\n' | '\r' => {
+					// Only add whitespace if it's necessary for syntax
+					if self.needs_whitespace_separation(prev_char, input, &result) {
+						result.push(' ');
+					}
+				}
+				_ => {
+					result.push(ch);
+				}
+			}
+			
+			if !ch.is_whitespace() {
+				prev_char = ch;
+			}
+		}
+
+		result.trim().to_string()
+	}
+
+	fn could_be_regex_start(&self, prev_char: char) -> bool {
+		matches!(prev_char, '=' | '(' | '[' | ',' | ':' | ';' | '!' | '&' | '|' | '?' | '+' | '-' | '*' | '/' | '%' | '{' | '}' | '\n' | '\r')
+	}
+
+	fn needs_whitespace_separation(&self, prev_char: char, _input: &str, result: &str) -> bool {
+		if result.is_empty() {
+			return false;
+		}
+
+		// Need space between keywords/identifiers and other tokens
+		match prev_char {
+			'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '$' => true,
+			_ => false,
+		}
 	}
 
 	fn aggressive_minify(&mut self, input_bytes: &[u8]) -> Result<Vec<u8>, MinifyError> {

@@ -48,7 +48,7 @@ jobs:
 
       - name: Run tarpaulin
         # Aggregates coverage for the entire workspace
-        run: cargo tarpaulin --workspace --fail-under 55 --ignore-tests
+        run: cargo tarpaulin --workspace --fail-under 80 --ignore-tests
 
   build_test_deploy:
     runs-on: ubuntu-latest

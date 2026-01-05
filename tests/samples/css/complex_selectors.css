@@ -1,0 +1,59 @@
+/* Complex CSS selectors for testing */
+
+/* Attribute selectors */
+input[type="text"] {
+  border: 1px solid #ccc;
+}
+
+input[type="email"]:focus {
+  border-color: #007bff;
+}
+
+/* Pseudo-classes and pseudo-elements */
+.button:hover::before {
+  content: "→ ";
+}
+
+.list-item:nth-child(odd) {
+  background-color: #f5f5f5;
+}
+
+.list-item:nth-child(2n+1) {
+  margin-left: 10px;
+}
+
+/* Complex combinators */
+.parent > .child + .sibling ~ .general {
+  color: purple;
+}
+
+/* Multiple selectors */
+h1, h2, h3, .heading {
+  font-family: 'Arial', sans-serif;
+  font-weight: bold;
+}
+
+/* CSS Grid and Flexbox */
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.flex-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* CSS Variables */
+:root {
+  --primary-color: #007bff;
+  --secondary-color: #6c757d;
+  --border-radius: 4px;
+}
+
+.themed-element {
+  color: var(--primary-color);
+  border-radius: var(--border-radius);
+}

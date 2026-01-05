@@ -112,9 +112,26 @@ impl HTMLPlugin {
 		let mut in_tag = false;
 		let mut in_quote = false;
 		let mut quote_char = '\0';
+		let mut in_script = false;
+		let mut in_style = false;
+		let mut chars = input.chars().peekable();
 
-		for ch in input.chars() {
+		while let Some(ch) = chars.next() {
 			if ch == '<' && !in_quote {
+				// Check if this is a script or style tag
+				let remaining: String = chars.clone().take(20).collect();
+				let remaining_lower = remaining.to_lowercase();
+				
+				if remaining_lower.starts_with("script") {
+					in_script = true;
+				} else if remaining_lower.starts_with("style") {
+					in_style = true;
+				} else if remaining_lower.starts_with("/script") {
+					in_script = false;
+				} else if remaining_lower.starts_with("/style") {
+					in_style = false;
+				}
+				
 				in_tag = true;
 				result.push(ch);
 			} else if ch == '>' && !in_quote {
@@ -123,7 +140,7 @@ impl HTMLPlugin {
 				quote_char = '\0';
 				result.push(ch);
 			} else if in_tag {
-				// Track quote state within tags
+				// Inside HTML tags - track quote state and preserve all content
 				if !in_quote && (ch == '"' || ch == '\'') {
 					in_quote = true;
 					quote_char = ch;
@@ -131,16 +148,55 @@ impl HTMLPlugin {
 					in_quote = false;
 					quote_char = '\0';
 				}
-				// Preserve all characters inside tags (including whitespace in quotes)
 				result.push(ch);
-			} else if !ch.is_whitespace() {
-				// Only add non-whitespace characters outside tags
+			} else if in_script || in_style {
+				// Inside script or style tags - preserve all content including whitespace
+				result.push(ch);
+			} else {
+				// Outside tags - this is text content
+				// Preserve all characters including whitespace in text content
 				result.push(ch);
 			}
-			// Skip whitespace outside tags entirely
 		}
 
-		result
+		// Only clean up whitespace between tags (not within text content)
+		let mut final_result = String::with_capacity(result.len());
+		let mut in_tag = false;
+		let mut chars = result.chars().peekable();
+		
+		while let Some(ch) = chars.next() {
+			if ch == '<' {
+				in_tag = true;
+				// Remove any trailing whitespace before this tag
+				while final_result.ends_with(' ') || final_result.ends_with('\t') || final_result.ends_with('\n') || final_result.ends_with('\r') {
+					final_result.pop();
+				}
+				final_result.push(ch);
+			} else if ch == '>' {
+				in_tag = false;
+				final_result.push(ch);
+				// Skip any immediate whitespace after closing tag if next char is <
+				if let Some(&next_ch) = chars.peek() {
+					if next_ch == '<' {
+						// Skip whitespace until we hit the next tag
+						while let Some(&ws_ch) = chars.peek() {
+							if ws_ch.is_whitespace() {
+								chars.next();
+							} else {
+								break;
+							}
+						}
+					}
+				}
+			} else if in_tag {
+				final_result.push(ch);
+			} else {
+				// Text content - preserve exactly as is
+				final_result.push(ch);
+			}
+		}
+
+		final_result
 	}
 
 	fn aggressive_minify(&mut self, input_bytes: &[u8]) -> Result<Vec<u8>, MinifyError> {
@@ -215,9 +271,17 @@ impl Minifier for HTMLPlugin {
 		let has_style_tag = content.contains("<style") || content.contains("<STYLE");
 		let has_common_tags = content.contains("<div")
 			|| content.contains("<span")
+			|| content.contains("<p>")
 			|| content.contains("<p ")
+			|| content.contains("<a>")
 			|| content.contains("<a ")
-			|| content.contains("<img");
+			|| content.contains("<img")
+			|| content.contains("<h1")
+			|| content.contains("<h2")
+			|| content.contains("<h3")
+			|| content.contains("<ul")
+			|| content.contains("<ol")
+			|| content.contains("<li");
 
 		let has_tag_structure =
 			content.contains("<!") || (content.contains('<') && content.contains('>'));

@@ -7,26 +7,16 @@ use std::sync::LazyLock;
 static CSS_COMMENT_REGEX: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"/\*[\s\S]*?\*/").unwrap());
 
-static CSS_WHITESPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
-
 static CSS_LEADING_TRAILING_REGEX: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"^\s+|\s+$").unwrap());
 
 static CSS_MULTIPLE_SEMICOLON_REGEX: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r";{2,}").unwrap());
 
-static CSS_SPACE_BEFORE_BRACE_REGEX: LazyLock<Regex> =
-	LazyLock::new(|| Regex::new(r"\s*\{\s*").unwrap());
-
-static CSS_SPACE_AFTER_BRACE_REGEX: LazyLock<Regex> =
-	LazyLock::new(|| Regex::new(r"\s*\}\s*").unwrap());
-
 static CSS_SPACE_BEFORE_SEMICOLON_REGEX: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"\s*;\s*").unwrap());
 
 static CSS_COLON_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*:\s*").unwrap());
-
-static CSS_NEWLINE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n+").unwrap());
 
 pub struct CSSPlugin {
 	last_stats: Option<MinifyStats>,
@@ -356,7 +346,7 @@ mod tests {
 		let output = String::from_utf8_lossy(&result_bytes);
 
 		// Should be valid CSS but smaller
-		assert!(output.contains("body{color:red;margin:0}"));
+		assert!(output.contains("body{color:red;margin:0;}"));
 		// Comments should be removed
 		assert!(!output.contains("/* This is a comment */"));
 	}
@@ -406,6 +396,192 @@ mod tests {
 		// But minification should fail
 		let result = plugin.minify(malformed, MinifyLevel::Safe);
 		assert!(result.is_err());
+	}
+
+	// Additional unit tests for CSS-specific minification techniques
+	// Requirements: 7.1, 7.5
+
+	#[test]
+	fn test_css_comment_removal() {
+		let mut plugin = CSSPlugin::new();
+		let input = b"/* Header comment */\nbody {\n    /* Inline comment */\n    color: red; /* End comment */\n}\n/* Footer comment */";
+
+		let result = plugin.safe_minify(input).unwrap();
+		let output = String::from_utf8_lossy(&result);
+
+		// All comments should be removed
+		assert!(!output.contains("/* Header comment */"));
+		assert!(!output.contains("/* Inline comment */"));
+		assert!(!output.contains("/* End comment */"));
+		assert!(!output.contains("/* Footer comment */"));
+		
+		// CSS structure should remain
+		assert!(output.contains("body"));
+		assert!(output.contains("color:red"));
+	}
+
+	#[test]
+	fn test_css_whitespace_collapse() {
+		let mut plugin = CSSPlugin::new();
+		let input = b"body    {   \n   color   :   red   ;   \n   margin   :   0   ;   \n}";
+
+		let result = plugin.safe_minify(input).unwrap();
+		let output = String::from_utf8_lossy(&result);
+
+		// Whitespace should be collapsed
+		assert!(!output.contains("   "));
+		assert!(!output.contains("\n"));
+		assert!(output.contains("body{color:red;margin:0;}"));
+	}
+
+	#[test]
+	fn test_css_property_preservation() {
+		let mut plugin = CSSPlugin::new();
+		let input = b".class {\n    background-color: #ff0000;\n    font-family: 'Arial', sans-serif;\n    margin: 10px 20px 30px 40px;\n}";
+
+		let result = plugin.safe_minify(input).unwrap();
+		let output = String::from_utf8_lossy(&result);
+
+		// Properties should be preserved
+		assert!(output.contains("background-color:#ff0000"));
+		assert!(output.contains("font-family:'Arial',sans-serif"));
+		assert!(output.contains("margin:10px"));
+		assert!(output.contains("20px"));
+		assert!(output.contains("30px"));
+		assert!(output.contains("40px"));
+	}
+
+	#[test]
+	fn test_css_selector_preservation() {
+		let mut plugin = CSSPlugin::new();
+		let input = b"body, html { margin: 0; }\n.class#id[attr=\"value\"] { padding: 0; }\n@media screen and (max-width: 768px) { .responsive { display: none; } }";
+
+		let result = plugin.safe_minify(input).unwrap();
+		let output = String::from_utf8_lossy(&result);
+
+		// Complex selectors should be preserved
+		assert!(output.contains("body,html{margin:0;}"));
+		assert!(output.contains(".class#id[attr=\"value\"]{padding:0;}"));
+		assert!(output.contains("@media"));
+		assert!(output.contains("screen"));
+		assert!(output.contains("max-width:768px"));
+		assert!(output.contains(".responsive{display:none;}"));
+	}
+
+	#[test]
+	fn test_css_string_preservation() {
+		let mut plugin = CSSPlugin::new();
+		let input = b".class {\n    content: \"Hello   World\";\n    font-family: 'Times New Roman';\n    background-image: url('path/to/image.jpg');\n}";
+
+		let result = plugin.safe_minify(input).unwrap();
+		let output = String::from_utf8_lossy(&result);
+
+		// Strings should preserve internal whitespace
+		assert!(output.contains("content:\"Hello   World\""));
+		assert!(output.contains("font-family:'Times New Roman'"));
+		assert!(output.contains("background-image:url('path/to/image.jpg')"));
+	}
+
+	#[test]
+	fn test_css_at_rules() {
+		let mut plugin = CSSPlugin::new();
+		let input = b"@charset \"UTF-8\";\n@import url('external.css');\n@keyframes slide {\n    from { opacity: 0; }\n    to { opacity: 1; }\n}";
+
+		let result = plugin.safe_minify(input).unwrap();
+		let output = String::from_utf8_lossy(&result);
+
+		// At-rules should be preserved and minified
+		assert!(output.contains("@charset"));
+		assert!(output.contains("UTF-8"));
+		assert!(output.contains("@import"));
+		assert!(output.contains("url('external.css')"));
+		assert!(output.contains("@keyframes"));
+		assert!(output.contains("slide"));
+		assert!(output.contains("from{opacity:0;}"));
+		assert!(output.contains("to{opacity:1;}"));
+	}
+
+	#[test]
+	fn test_css_aggressive_mode_differences() {
+		let mut plugin = CSSPlugin::new();
+		let input = b"body {\n    color: red;\n    margin: 0;\n}";
+
+		let safe_result = plugin.safe_minify(input).unwrap();
+		let aggressive_result = plugin.aggressive_minify(input).unwrap();
+
+		let safe_output = String::from_utf8_lossy(&safe_result);
+		let aggressive_output = String::from_utf8_lossy(&aggressive_result);
+
+		// Aggressive mode should produce same or smaller output
+		assert!(aggressive_result.len() <= safe_result.len());
+		
+		// Both should preserve CSS structure
+		assert!(safe_output.contains("body{color:red;margin:0;}"));
+		assert!(aggressive_output.contains("body{color:red;margin:0}") || aggressive_output.contains("body{color:red;margin:0;}"));
+	}
+
+	#[test]
+	fn test_css_edge_cases() {
+		let plugin = CSSPlugin::new();
+
+		// Test with only whitespace
+		let whitespace_only = b"   \n\t   \n   ";
+		assert!(!plugin.detect(whitespace_only));
+
+		// Test with CSS-like but invalid content
+		let invalid_css = b"{ color: red }"; // Missing selector
+		assert!(!plugin.detect(invalid_css));
+
+		// Test with minimal valid CSS
+		let minimal_css = b"*{margin:0}";
+		assert!(plugin.detect(minimal_css));
+		let result = plugin.minify(minimal_css, MinifyLevel::Safe);
+		assert!(result.is_ok());
+	}
+
+	#[test]
+	fn test_css_large_file_handling() {
+		let mut plugin = CSSPlugin::new();
+		
+		// Create a larger CSS file with repeated rules
+		let mut large_css = String::new();
+		for i in 0..100 {
+			large_css.push_str(&format!(
+				".class{} {{ color: red; margin: {}px; padding: {}px; }}\n",
+				i, i, i * 2
+			));
+		}
+
+		let result = plugin.safe_minify(large_css.as_bytes());
+		assert!(result.is_ok());
+
+		let output = result.unwrap();
+		let output_str = String::from_utf8_lossy(&output);
+
+		// Should still be valid CSS
+		assert!(plugin.parse_css(&output_str).is_ok());
+		// Should be smaller than input
+		assert!(output.len() < large_css.len());
+	}
+
+	#[test]
+	fn test_css_nested_structures() {
+		let mut plugin = CSSPlugin::new();
+		let input = b"@media screen {\n    .container {\n        @supports (display: grid) {\n            .grid-item {\n                display: grid;\n            }\n        }\n    }\n}";
+
+		let result = plugin.safe_minify(input);
+		assert!(result.is_ok());
+
+		let output = result.unwrap();
+		let output_str = String::from_utf8_lossy(&output);
+
+		// Nested structures should be preserved
+		assert!(output_str.contains("@media"));
+		assert!(output_str.contains("screen"));
+		assert!(output_str.contains("@supports"));
+		assert!(output_str.contains("display:grid"));
+		assert!(output_str.contains(".container"));
+		assert!(output_str.contains(".grid-item"));
 	}
 
 	/**
