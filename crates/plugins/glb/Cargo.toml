@@ -1,5 +1,13 @@
 [package]
 name = "glb"
-edition = "2024"
+version = "0.1.0"
+edition = "2021"
 
 [dependencies]
+core = { path = "../../core" }
+log = "0.4"
+gltf = "1.4"
+meshopt = "0.2"
+
+[dev-dependencies]
+quickcheck = "1.0"

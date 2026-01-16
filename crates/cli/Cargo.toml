@@ -11,6 +11,7 @@ core = { path = "../core" }
 js = { path = "../plugins/js" }
 css = { path = "../plugins/css" }
 html = { path = "../plugins/html" }
+glb = { path = "../plugins/glb" }
 
 [dev-dependencies]
 tempfile = "3.0"

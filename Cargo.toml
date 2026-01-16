@@ -11,7 +11,7 @@ members = [
 resolver = "2"
 
 [profile.dev]
-opt-level = "s"
+opt-level = 1
 lto = "thin"
 
 [profile.release]

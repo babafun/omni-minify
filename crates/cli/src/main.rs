@@ -1,9 +1,10 @@
 use clap::{Parser, ValueEnum};
-use core::{Minifier, MinifyError, MinifyLevel};
+use core::{file_safety, Minifier, MinifyError, MinifyLevel, ExitCode};
 use css::CSSPlugin;
+use glb::GlbPlugin;
 use html::HTMLPlugin;
 use js::JavaScriptPlugin;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::fs;
 use std::path::PathBuf;
 
@@ -50,6 +51,12 @@ pub enum FormatOverride {
 	Glb,
 	/// Rust
 	Rust,
+	/// C
+	C,
+	/// C++
+	Cpp,
+	/// Java
+	Java,
 }
 
 impl Args {
@@ -167,6 +174,9 @@ impl PluginRegistry {
 			FormatOverride::Html => "html",
 			FormatOverride::Glb => "glb",
 			FormatOverride::Rust => "rust",
+			FormatOverride::C => "c",
+			FormatOverride::Cpp => "cpp",
+			FormatOverride::Java => "java",
 		};
 
 		debug!("Looking for plugin with name: {}", format_name);
@@ -222,6 +232,11 @@ impl App {
 			registry: PluginRegistry::new(),
 		};
 
+		// Register binary format plugins first (more specific detection)
+		// Register GLB plugin
+		app.registry.register(Box::new(GlbPlugin::new()));
+
+		// Register text-based plugins (less specific detection)
 		// Register JavaScript plugin
 		app.registry.register(Box::new(JavaScriptPlugin::new()));
 
@@ -239,9 +254,19 @@ impl App {
 	pub fn process_file(&mut self, args: &Args) -> Result<(), MinifyError> {
 		debug!("Processing file: {:?}", args.input);
 
-		// Read input file
-		let input_bytes = self.read_file(&args.input)?;
+		// Get output path early for validation
+		let output_path = args.get_output_path();
+		debug!("Output path: {:?}", output_path);
+
+		// Validate file permissions before processing
+		file_safety::validate_file_permissions(&args.input, &output_path)?;
+
+		// Read input file safely
+		let input_bytes = file_safety::safe_read_file(&args.input)?;
 		debug!("Read {} bytes from input file", input_bytes.len());
+
+		// Create backup manager for safety
+		let mut backup = file_safety::FileBackup::new(&args.input);
 
 		// Find appropriate plugin
 		let plugin = if let Some(format_override) = &args.format {
@@ -269,25 +294,52 @@ impl App {
 		let level = args.get_minify_level();
 		debug!("Using minification level: {:?}", level);
 
-		// Perform minification
-		let output_bytes = plugin.minify(&input_bytes, level)?;
-		debug!(
-			"Minification complete: {} -> {} bytes",
-			input_bytes.len(),
-			output_bytes.len()
-		);
+		// Perform minification with error handling
+		let output_bytes = match plugin.minify(&input_bytes, level) {
+			Ok(bytes) => {
+				debug!(
+					"Minification complete: {} -> {} bytes",
+					input_bytes.len(),
+					bytes.len()
+				);
+				bytes
+			}
+			Err(e) => {
+				error!("Minification failed with plugin '{}': {}", plugin.name(), e);
+				
+				// Restore from backup if needed (though input file shouldn't be modified)
+				if let Err(restore_err) = backup.restore_from_backup() {
+					warn!("Failed to restore from backup: {}", restore_err);
+				}
+				
+				return Err(MinifyError::PluginError(format!(
+					"Plugin '{}' failed: {}", plugin.name(), e
+				)));
+			}
+		};
 
-		// Get output path
-		let output_path = args.get_output_path();
-		debug!("Output path: {:?}", output_path);
-
-		// Write output to new file (preserves original)
-		self.write_file(&output_path, &output_bytes)?;
-		info!(
-			"File minified successfully: {} -> {}",
-			args.input.display(),
-			output_path.display()
-		);
+		// Write output to new file safely (preserves original)
+		match file_safety::safe_write_file(&output_path, &output_bytes) {
+			Ok(()) => {
+				info!(
+					"File minified successfully: {} -> {}",
+					args.input.display(),
+					output_path.display()
+				);
+			}
+			Err(e) => {
+				error!("Failed to write output file: {}", e);
+				
+				// Clean up any partial output file
+				if output_path.exists() {
+					if let Err(cleanup_err) = fs::remove_file(&output_path) {
+						warn!("Failed to cleanup partial output file: {}", cleanup_err);
+					}
+				}
+				
+				return Err(e);
+			}
+		}
 
 		// Display statistics if requested
 		if args.stats {
@@ -300,30 +352,6 @@ impl App {
 			);
 		}
 
-		Ok(())
-	}
-
-	/// Read file contents as bytes
-	fn read_file(&self, path: &PathBuf) -> Result<Vec<u8>, MinifyError> {
-		debug!("Reading file: {:?}", path);
-
-		if !path.exists() {
-			return Err(MinifyError::IoError(std::io::Error::new(
-				std::io::ErrorKind::NotFound,
-				format!("File not found: {}", path.display()),
-			)));
-		}
-
-		let bytes = fs::read(path)?;
-		debug!("Successfully read {} bytes", bytes.len());
-		Ok(bytes)
-	}
-
-	/// Write bytes to file
-	fn write_file(&self, path: &PathBuf, bytes: &[u8]) -> Result<(), MinifyError> {
-		debug!("Writing {} bytes to file: {:?}", bytes.len(), path);
-		fs::write(path, bytes)?;
-		debug!("File written successfully");
 		Ok(())
 	}
 
@@ -340,25 +368,74 @@ impl App {
 		println!("Plugin: {}", plugin.name());
 		println!("Input: {}", input_path.display());
 		println!("Output: {}", output_path.display());
-		println!("Before: {} bytes", before_bytes);
-		println!("After: {} bytes", after_bytes);
-
-		let saved = before_bytes.saturating_sub(after_bytes);
-		let percentage = if before_bytes > 0 {
-			(saved as f64 / before_bytes as f64) * 100.0
+		
+		// Get plugin-specific stats if available
+		if let Some(stats) = plugin.stats() {
+			// Use the comprehensive report from MinifyStats
+			println!("{}", stats.generate_report());
 		} else {
-			0.0
-		};
-
-		println!("Saved: {} bytes ({:.1}%)", saved, percentage);
-
-		// Display plugin-specific stats if available
-		if let Some(stats) = plugin.stats()
-			&& let Some(extra) = &stats.extra
-		{
-			println!("Details: {}", extra);
+			// Fallback to basic statistics if plugin doesn't provide detailed stats
+			println!("Before: {} bytes", before_bytes);
+			println!("After: {} bytes", after_bytes);
+			
+			let saved = before_bytes.saturating_sub(after_bytes);
+			let percentage = if before_bytes > 0 {
+				(saved as f64 / before_bytes as f64) * 100.0
+			} else {
+				0.0
+			};
+			
+			println!("Saved: {} bytes ({:.1}%)", saved, percentage);
 		}
+		
 		println!("===============================");
+	}
+
+	/// Display detailed error information with helpful suggestions
+	fn display_error_help(&self, error: &MinifyError) {
+		match error {
+			MinifyError::UnsupportedFormat => {
+				eprintln!("No plugin available to handle this file format.");
+				if self.registry.is_empty() {
+					eprintln!("No plugins are currently registered. Plugins will be available once implemented.");
+				} else {
+					eprintln!("Available plugins: {}", self.registry.get_plugin_names().join(", "));
+					eprintln!("Try using --format flag to override auto-detection.");
+				}
+			}
+			MinifyError::FileNotFound(_) => {
+				eprintln!("Check that the input file exists and the path is correct.");
+			}
+			MinifyError::PermissionError(_) => {
+				eprintln!("Check file and directory permissions.");
+				eprintln!("Ensure you have read access to the input file and write access to the output directory.");
+			}
+			MinifyError::MemoryLimitExceeded(_) => {
+				eprintln!("The file is too large to process safely.");
+				eprintln!("Maximum supported file size is {} MB.", file_safety::MAX_FILE_SIZE / (1024 * 1024));
+				eprintln!("Consider splitting the file or processing it in smaller chunks.");
+			}
+			MinifyError::ParseError(_) => {
+				eprintln!("The file contains syntax errors or is corrupted.");
+				eprintln!("Verify the file is valid and try again.");
+			}
+			MinifyError::PluginError(_) => {
+				eprintln!("The minification plugin encountered an error.");
+				eprintln!("This may indicate a bug in the plugin or unsupported syntax.");
+			}
+			MinifyError::BackupError(_) => {
+				eprintln!("Failed to create or manage file backup.");
+				eprintln!("Check available disk space and file permissions.");
+			}
+			MinifyError::OutputExists(_) => {
+				eprintln!("Output file already exists.");
+				eprintln!("Use --output flag to specify a different output path.");
+			}
+			MinifyError::IoError(_) => {
+				eprintln!("A file system error occurred.");
+				eprintln!("Check file permissions, disk space, and file system integrity.");
+			}
+		}
 	}
 }
 
@@ -367,7 +444,15 @@ fn main() {
 	env_logger::init();
 
 	// Parse command line arguments
-	let args = Args::parse();
+	let args = match Args::try_parse() {
+		Ok(args) => args,
+		Err(e) => {
+			// Handle clap errors (invalid arguments)
+			eprintln!("Error: {}", e);
+			std::process::exit(ExitCode::InvalidArguments as i32);
+		}
+	};
+
 	debug!(
 		"Parsed arguments: input={:?}, level={:?}, stats={}, format={:?}, output={:?}",
 		args.input,
@@ -383,36 +468,19 @@ fn main() {
 	match app.process_file(&args) {
 		Ok(()) => {
 			debug!("Application completed successfully");
+			std::process::exit(ExitCode::Success as i32);
 		}
 		Err(e) => {
 			error!("Application failed: {}", e);
 			eprintln!("Error: {}", e);
 
-			// Provide helpful error messages
-			match e {
-				MinifyError::UnsupportedFormat => {
-					eprintln!("No plugin available to handle this file format.");
-					if app.registry.is_empty() {
-						eprintln!(
-							"No plugins are currently registered. Plugins will be available once implemented."
-						);
-					} else {
-						eprintln!(
-							"Available plugins: {}",
-							app.registry.get_plugin_names().join(", ")
-						);
-						eprintln!("Try using --format flag to override auto-detection.");
-					}
-				}
-				MinifyError::IoError(_) => {
-					eprintln!(
-						"Check that the file exists and you have permission to read/write it."
-					);
-				}
-				_ => {}
-			}
+			// Display helpful error information
+			app.display_error_help(&e);
 
-			std::process::exit(1);
+			// Exit with appropriate error code
+			let exit_code = ExitCode::from(e);
+			debug!("Exiting with code: {:?}", exit_code);
+			std::process::exit(exit_code as i32);
 		}
 	}
 }
@@ -498,11 +566,10 @@ mod tests {
 				return TestResult::discard();
 			}
 
-			let app = App::new();
 			let path = temp_file.path().to_path_buf();
 
 			// Property: The CLI should successfully read any valid file path
-			match app.read_file(&path) {
+			match file_safety::safe_read_file(&path) {
 				Ok(read_content) => {
 					debug!("File read successfully: {} bytes", read_content.len());
 					// Property: Read content should match original content
@@ -858,12 +925,14 @@ mod tests {
 	}
 
 	#[test]
-	fn test_app_file_operations() {
-		let app = App::new();
-
+	fn test_file_safety_operations() {
 		// Test reading non-existent file
-		let result = app.read_file(&PathBuf::from("non_existent_file.txt"));
+		let result = file_safety::safe_read_file(&PathBuf::from("non_existent_file.txt"));
 		assert!(result.is_err());
+		match result.unwrap_err() {
+			MinifyError::FileNotFound(_) => {}, // Expected
+			_ => panic!("Expected FileNotFound error"),
+		}
 
 		// Test reading and writing with temporary file
 		let mut temp_file = NamedTempFile::new().unwrap();
@@ -871,18 +940,201 @@ mod tests {
 		temp_file.write_all(test_content).unwrap();
 
 		let path = temp_file.path().to_path_buf();
-		let read_result = app.read_file(&path).unwrap();
+		let read_result = file_safety::safe_read_file(&path).unwrap();
 		assert_eq!(read_result, test_content);
 
 		// Test writing to different path (new behavior)
 		let output_path = path.with_extension("min.txt");
 		let new_content = b"new content";
-		app.write_file(&output_path, new_content).unwrap();
-		let read_again = app.read_file(&output_path).unwrap();
+		file_safety::safe_write_file(&output_path, new_content).unwrap();
+		let read_again = file_safety::safe_read_file(&output_path).unwrap();
 		assert_eq!(read_again, new_content);
 
 		// Verify original file is unchanged
-		let original_content = app.read_file(&path).unwrap();
+		let original_content = file_safety::safe_read_file(&path).unwrap();
 		assert_eq!(original_content, test_content);
+	}
+
+	#[test]
+	fn test_file_backup_operations() {
+		// Create a temporary file
+		let mut temp_file = NamedTempFile::new().unwrap();
+		let original_content = b"original content";
+		temp_file.write_all(original_content).unwrap();
+		let path = temp_file.path().to_path_buf();
+
+		// Test backup creation and restoration
+		let mut backup = file_safety::FileBackup::new(&path);
+		
+		// Create backup
+		backup.create_backup().unwrap();
+		
+		// Modify original file
+		let modified_content = b"modified content";
+		file_safety::safe_write_file(&path, modified_content).unwrap();
+		
+		// Verify file was modified
+		let current_content = file_safety::safe_read_file(&path).unwrap();
+		assert_eq!(current_content, modified_content);
+		
+		// Restore from backup
+		backup.restore_from_backup().unwrap();
+		
+		// Verify restoration
+		let restored_content = file_safety::safe_read_file(&path).unwrap();
+		assert_eq!(restored_content, original_content);
+		
+		// Cleanup
+		backup.cleanup_backup().unwrap();
+	}
+
+	#[test]
+	fn test_file_permission_validation() {
+		// Test with temporary file (should succeed)
+		let mut temp_file = NamedTempFile::new().unwrap();
+		temp_file.write_all(b"test").unwrap();
+		let input_path = temp_file.path().to_path_buf();
+		let output_path = input_path.with_extension("min.txt");
+		
+		let result = file_safety::validate_file_permissions(&input_path, &output_path);
+		assert!(result.is_ok());
+		
+		// Test with non-existent input file
+		let non_existent = PathBuf::from("non_existent_file.txt");
+		let result = file_safety::validate_file_permissions(&non_existent, &output_path);
+		assert!(result.is_err());
+		match result.unwrap_err() {
+			MinifyError::FileNotFound(_) => {}, // Expected
+			_ => panic!("Expected FileNotFound error"),
+		}
+	}
+
+	/**
+	 * Feature: omni-minify-cli, Property 9: File Safety on Failure
+	 * Validates: Requirements 10.3
+	 */
+	#[test]
+	fn property_file_safety_on_failure() {
+		fn prop(file_content: Vec<u8>) -> TestResult {
+			use log::debug;
+			
+			// Skip very large files to keep test reasonable
+			if file_content.len() > 10000 {
+				return TestResult::discard();
+			}
+
+			debug!("Testing file safety on failure with {} bytes", file_content.len());
+
+			// Create a temporary input file with the test content
+			let mut temp_input = match NamedTempFile::new() {
+				Ok(file) => file,
+				Err(_) => return TestResult::discard(),
+			};
+
+			if temp_input.write_all(&file_content).is_err() {
+				return TestResult::discard();
+			}
+
+			let input_path = temp_input.path().to_path_buf();
+			let output_path = input_path.with_extension("min.tmp");
+
+			debug!("Input path: {:?}, Output path: {:?}", input_path, output_path);
+
+			// Read original file content for comparison
+			let original_content = match file_safety::safe_read_file(&input_path) {
+				Ok(content) => content,
+				Err(_) => return TestResult::discard(),
+			};
+
+			debug!("Original content: {} bytes", original_content.len());
+
+			// Create a mock plugin that always fails minification
+			struct FailingPlugin;
+			impl Minifier for FailingPlugin {
+				fn name(&self) -> &str {
+					"failing_plugin"
+				}
+				fn detect(&self, _: &[u8]) -> bool {
+					true // Always detect to ensure it gets used
+				}
+				fn minify(&self, _: &[u8], _: MinifyLevel) -> Result<Vec<u8>, MinifyError> {
+					// Always fail with a parse error
+					Err(MinifyError::ParseError("Intentional failure for testing".to_string()))
+				}
+				fn stats(&self) -> Option<core::MinifyStats> {
+					None
+				}
+			}
+
+			// Create a registry with only the failing plugin
+			let mut registry = PluginRegistry::new();
+			registry.register(Box::new(FailingPlugin));
+
+			// Create app with the failing plugin registry
+			let mut app = App {
+				registry,
+			};
+
+			// Create args that would trigger minification
+			let args = Args {
+				input: input_path.clone(),
+				safe: true,
+				aggressive: false,
+				stats: false,
+				format: None,
+				output: Some(output_path.clone()),
+			};
+
+			debug!("Attempting minification that should fail");
+
+			// Attempt to process the file (should fail)
+			let result = app.process_file(&args);
+
+			debug!("Minification result: {:?}", result.is_err());
+
+			// Property 1: Minification should fail (we expect this)
+			if result.is_ok() {
+				debug!("Expected minification to fail, but it succeeded");
+				return TestResult::failed();
+			}
+
+			// Property 2: Original file should remain unchanged
+			match file_safety::safe_read_file(&input_path) {
+				Ok(current_content) => {
+					if current_content != original_content {
+						debug!("Original file was modified! Original: {} bytes, Current: {} bytes", 
+							   original_content.len(), current_content.len());
+						return TestResult::failed();
+					}
+					debug!("Original file preserved correctly");
+				}
+				Err(e) => {
+					debug!("Failed to read original file after failure: {}", e);
+					return TestResult::failed();
+				}
+			}
+
+			// Property 3: No output file should be created
+			if output_path.exists() {
+				debug!("Output file was created despite failure: {:?}", output_path);
+				return TestResult::failed();
+			}
+
+			debug!("File safety on failure validated successfully");
+			TestResult::passed()
+		}
+
+		quickcheck(prop as fn(Vec<u8>) -> TestResult);
+	}
+
+	#[test]
+	fn test_exit_code_mapping() {
+		// Test error to exit code conversion
+		assert_eq!(ExitCode::from(MinifyError::FileNotFound("test".to_string())), ExitCode::FileNotFound);
+		assert_eq!(ExitCode::from(MinifyError::PermissionError("test".to_string())), ExitCode::PermissionDenied);
+		assert_eq!(ExitCode::from(MinifyError::UnsupportedFormat), ExitCode::UnsupportedFormat);
+		assert_eq!(ExitCode::from(MinifyError::ParseError("test".to_string())), ExitCode::ParseError);
+		assert_eq!(ExitCode::from(MinifyError::PluginError("test".to_string())), ExitCode::PluginError);
+		assert_eq!(ExitCode::from(MinifyError::MemoryLimitExceeded("test".to_string())), ExitCode::MemoryLimitExceeded);
 	}
 }

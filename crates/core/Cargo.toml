@@ -3,6 +3,7 @@ name = "core"
 edition = "2024"
 
 [dependencies]
+log = "0.4"
 
 [dev-dependencies]
 quickcheck = "1.0"

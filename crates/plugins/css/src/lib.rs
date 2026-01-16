@@ -703,4 +703,102 @@ mod tests {
 			.tests(20)
 			.quickcheck(prop as fn(String) -> TestResult);
 	}
+
+	/**
+	 * Feature: omni-minify-cli, Property 6: Aggressive Mode Size Reduction
+	 * Validates: Requirements 5.1
+	 */
+	#[test]
+	fn property_aggressive_mode_size_reduction() {
+		fn prop(input_content: String) -> TestResult {
+			use log::debug;
+			
+			// Filter out invalid or problematic inputs
+			if input_content.is_empty() || input_content.len() > 1000 {
+				return TestResult::discard();
+			}
+
+			// Only test with content that looks like CSS
+			if !input_content.contains("{") && !input_content.contains(";") {
+				return TestResult::discard();
+			}
+
+			debug!(
+				"Testing aggressive mode size reduction with {} byte input",
+				input_content.len()
+			);
+
+			let plugin = CSSPlugin::new();
+
+			// Only test if plugin can detect this as CSS
+			if !plugin.detect(input_content.as_bytes()) {
+				return TestResult::discard();
+			}
+
+			// First, verify the input is valid CSS
+			if plugin.parse_css(&input_content).is_err() {
+				return TestResult::discard();
+			}
+
+			// Get both safe and aggressive mode results
+			let safe_result = plugin.minify(input_content.as_bytes(), MinifyLevel::Safe);
+			let aggressive_result = plugin.minify(input_content.as_bytes(), MinifyLevel::Aggressive);
+
+			match (safe_result, aggressive_result) {
+				(Ok(safe_output), Ok(aggressive_output)) => {
+					debug!(
+						"Size comparison: safe={} bytes, aggressive={} bytes",
+						safe_output.len(),
+						aggressive_output.len()
+					);
+
+					// Property: Aggressive mode should produce output that is smaller than or equal to safe mode
+					let size_property = aggressive_output.len() <= safe_output.len();
+
+					debug!(
+						"Aggressive mode size reduction check: {} <= {} = {}",
+						aggressive_output.len(),
+						safe_output.len(),
+						size_property
+					);
+
+					// Additional property: Both outputs should be smaller than or equal to input
+					let safe_reduces_size = safe_output.len() <= input_content.len();
+					let aggressive_reduces_size = aggressive_output.len() <= input_content.len();
+
+					debug!(
+						"Size reduction checks: safe {} <= {} = {}, aggressive {} <= {} = {}",
+						safe_output.len(),
+						input_content.len(),
+						safe_reduces_size,
+						aggressive_output.len(),
+						input_content.len(),
+						aggressive_reduces_size
+					);
+
+					TestResult::from_bool(size_property && safe_reduces_size && aggressive_reduces_size)
+				}
+				(Ok(_), Err(e)) => {
+					debug!("Aggressive mode failed while safe mode succeeded: {}", e);
+					// This could indicate a bug in aggressive mode
+					TestResult::failed()
+				}
+				(Err(_), Ok(_)) => {
+					debug!("Safe mode failed while aggressive mode succeeded - unexpected");
+					// This should not happen - if safe mode fails, aggressive should too
+					TestResult::failed()
+				}
+				(Err(e1), Err(e2)) => {
+					debug!("Both modes failed: safe={}, aggressive={}", e1, e2);
+					// Both failed - discard this input as it's likely invalid
+					TestResult::discard()
+				}
+			}
+		}
+
+		// Run with only 20 tests instead of default 100 for faster execution
+		QuickCheck::new()
+			.tests(20)
+			.quickcheck(prop as fn(String) -> TestResult);
+	}
 }
