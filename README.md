@@ -7,13 +7,10 @@ A format-aware, open-source CLI that optimises text, code, and binary assets:
 - Rust / C / C++ / Java
 - 3D models (GLB) via mesh optimisation
 
-This is not a formatter.
-This is not a zip file.
-
-This is *semantic size reduction*, so that once you're done with your code (or GLB file), you free up a bunch of space, save download time for clients connecting to your website, or optimise your mesh to run quickly in your game.
+Rather than just zipping it up, I am using *semantic size reduction*, so that once you're done with your code (or GLB file), you free up a bunch of space, save download time for clients connecting to your website, or optimise your mesh to run quickly in your game.
 
 ## Status
-🚧 Early development - do not use on code you care about without backing it up.
+Very early development - do not use on code you care about without backing it up.
 
 Currently known bugs:
 - It removes whitespace from text in quotes/paragraphs at times (universal)
